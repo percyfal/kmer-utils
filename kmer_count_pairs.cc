@@ -12,6 +12,7 @@
  *
  */
 
+#include <getopt.h>
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -34,9 +35,9 @@ using jellyfish::mer_dna;
 using jellyfish::cpp_array;
 typedef std::unique_ptr<binary_reader>           binary_reader_ptr;
 typedef std::unique_ptr<text_reader>             text_reader_ptr;
+typedef jellyfish::cooperative::hash_counter<jellyfish::mer_dna>                  mer_hash_t;
 
-struct file_info {
-  std::ifstream is;
+struct file_info {std::ifstream is;
   file_header   header;
 
   file_info(const char* path) :
@@ -96,11 +97,12 @@ common_info read_headers(int argc, char* input_files[], cpp_array<file_info>& fi
 }
 
 template<typename reader_type>
-void output_counts(cpp_array<file_info>& files) {
+void output_counts(cpp_array<file_info>& files, mer_hash_t& mer_hash_, char *outfile) {
   cpp_array<reader_type> readers(files.size());
   typedef jellyfish::mer_heap::heap<mer_dna, reader_type> heap_type;
   typedef typename heap_type::const_item_t heap_item;
   heap_type heap(files.size());
+  std::ofstream outfile_;
 
   // Prime heap
   for(size_t i = 0; i < files.size(); ++i) {
@@ -116,10 +118,12 @@ void output_counts(cpp_array<file_info>& files) {
   uint64_t           counts[num_files];
 
   std::unordered_map<uint64_t, std::unordered_map<uint64_t, uint64_t>> coverage_count;
-  
+
   while(heap.is_not_empty()) {
     key = head->key_;
     memset(counts, '\0', sizeof(uint64_t) * num_files);
+    // Heap consists of ordered array from both files; collect all
+    // keys of given type before moving on
     do {
       counts[head->it_ - base] = head->val_;
       heap.pop();
@@ -127,37 +131,59 @@ void output_counts(cpp_array<file_info>& files) {
         heap.push(*head->it_);
       head = heap.head();
     } while(head->key_ == key && heap.is_not_empty());
-	// Assembly counts in slot 1, read counts in slot 2
-	coverage_count[counts[0]][counts[1]]++;
+
+    // Assembly counts in slot 1, read counts in slot 2
+    coverage_count[counts[0]][counts[1]]++;
+    mer_hash_.add(key, counts[0]);
   }
+
+  outfile_.open(outfile);
   for (const std::pair<uint64_t, std::unordered_map<uint64_t, uint64_t>>& x : coverage_count) {
-	  for (const std::pair<uint64_t, uint64_t>& y : x.second) {
-		  std::cout << x.first << "\t" << y.first << "\t" << y.second << std::endl;
-	  }
+    for (const std::pair<uint64_t, uint64_t>& y : x.second) {
+      outfile_ << x.first << "\t" << y.first << "\t" << y.second << std::endl;
+    }
   }
 }
 
 int main(int argc, char *argv[])
 {
-  // Check number of input files
-    if (argc < 2) {err::die(err::msg() << "usage: " <<
-							argv[0] << "assembly_file read_file" <<
-							"\n\nARGUMENTS:\n" <<
-							"\tassembly_file\t\tjellyfish database from genome assembly\n" <<
-							"\tread_file\t\tjellyfish database from short read data\n");							
-    }
+  jellyfish::file_header header;
+  header.fill_standard();
+  header.set_cmdline(argc, argv);
+
+  // Check number of arguments
+  if (argc != 4) {err::die(err::msg() << "usage: " <<
+                           argv[0] << " assembly_file read_file out_prefix" <<
+                           "\n\nARGUMENTS:\n" <<
+                           "\tassembly_file\t\tjellyfish database from genome assembly\n" <<
+                           "\tread_file\t\tjellyfish database from short read data\n" <<
+                           "\tout_prefix\t\toutput prefix\n");
+  }
 
   // Read the header of each input files and do sanity checks.
-  cpp_array<file_info> files(argc - 1);
-  common_info cinfo = read_headers(argc - 1, argv + 1, files);
+  cpp_array<file_info> files(argc - 2);
+  common_info cinfo = read_headers(argc - 2, argv + 1, files);
   mer_dna::k(cinfo.key_len / 2);
 
+  std::unique_ptr<jellyfish::dumper_t<mer_array> > dumper;
+
+  char outfile[1024];
+  strcpy(outfile, argv[3]);
+  strcat(outfile, "_mers.jf");
+
+  mer_hash_t mer_hash(cinfo.size, cinfo.key_len, 24, 1, 126);
+  dumper.reset(new binary_dumper(4, mer_hash.key_len(), 1, outfile, &header));
+  mer_hash.dumper(dumper.get());
+
+  // table output file name
+  strcpy(outfile, argv[3]);
+  strcat(outfile, ".tsv");
   if(cinfo.format == binary_dumper::format)
-    output_counts<binary_reader>(files);
-  else if(cinfo.format == text_dumper::format)
-    output_counts<text_reader>(files);
+    output_counts<binary_reader>(files, mer_hash, outfile);
+  else if (cinfo.format == text_dumper::format)
+    output_counts<text_reader>(files, mer_hash, outfile);
   else
     err::die(err::msg() << "Format '" << cinfo.format << "' not supported\n");
-
+  dumper->dump(mer_hash.ary());
   return 0;
 }

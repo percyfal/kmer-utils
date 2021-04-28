@@ -1,4 +1,4 @@
-project('jellyfish-utils', ['c', 'cpp'], default_options: ['c_std=c99', 'cpp_std=c++11'])
+project('kmer-utils', ['c', 'cpp'], default_options: ['c_std=c99', 'cpp_std=c++11'])
 
 cc = meson.get_compiler('c')
 
