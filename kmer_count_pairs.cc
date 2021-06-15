@@ -151,9 +151,31 @@ int main(int argc, char *argv[])
   header.fill_standard();
   header.set_cmdline(argc, argv);
 
+  // Get options
+  int c;
+  bool saveMers = false;
+  while (1) {
+    int option_index = 0;
+    static struct option long_options[] = {
+      {"savemers",  no_argument,       0,  0 },
+      {0,         0,                 0,  0 }
+    };
+    c = getopt_long(argc, argv, "m", long_options, &option_index);
+    if (c == -1)
+      break;
+
+    switch (c) {
+    case 'm':
+      saveMers = true;
+      break;
+    case '?':
+      break;
+    }
+  };
+
   // Check number of arguments
-  if (argc != 4) {err::die(err::msg() << "usage: " <<
-                           argv[0] << " assembly_file read_file out_prefix" <<
+  if ((argc - optind) != 3) {err::die(err::msg() << "usage: " <<
+                           argv[0] << " [-m] assembly_file read_file out_prefix" <<
                            "\n\nARGUMENTS:\n" <<
                            "\tassembly_file\t\tjellyfish database from genome assembly\n" <<
                            "\tread_file\t\tjellyfish database from short read data\n" <<
@@ -161,29 +183,32 @@ int main(int argc, char *argv[])
   }
 
   // Read the header of each input files and do sanity checks.
-  cpp_array<file_info> files(argc - 2);
-  common_info cinfo = read_headers(argc - 2, argv + 1, files);
+  cpp_array<file_info> files(2);
+  common_info cinfo = read_headers(2, argv + optind, files);
   mer_dna::k(cinfo.key_len / 2);
 
   std::unique_ptr<jellyfish::dumper_t<mer_array> > dumper;
 
   char outfile[1024];
-  strcpy(outfile, argv[3]);
+  strcpy(outfile, argv[argc - 1]);
   strcat(outfile, "_mers.jf");
 
   mer_hash_t mer_hash(cinfo.size, cinfo.key_len, 24, 1, 126);
   dumper.reset(new binary_dumper(4, mer_hash.key_len(), 1, outfile, &header));
+  dumper->one_file(true);
   mer_hash.dumper(dumper.get());
 
   // table output file name
-  strcpy(outfile, argv[3]);
-  strcat(outfile, ".tsv");
+  char tablefile[1024];
+  strcpy(tablefile, argv[3]);
+  strcat(tablefile, ".tsv");
   if(cinfo.format == binary_dumper::format)
-    output_counts<binary_reader>(files, mer_hash, outfile);
+    output_counts<binary_reader>(files, mer_hash, tablefile);
   else if (cinfo.format == text_dumper::format)
-    output_counts<text_reader>(files, mer_hash, outfile);
+    output_counts<text_reader>(files, mer_hash, tablefile);
   else
     err::die(err::msg() << "Format '" << cinfo.format << "' not supported\n");
-  dumper->dump(mer_hash.ary());
+  if (saveMers)
+    dumper->dump(mer_hash.ary());
   return 0;
 }
