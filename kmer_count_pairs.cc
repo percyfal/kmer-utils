@@ -147,6 +147,17 @@ void output_counts(cpp_array<file_info>& files, mer_hash_t& mer_hash_, char *out
 
 int main(int argc, char *argv[])
 {
+  const char* usage =
+    "kmer_count_pairs [options] assembly_file read_file out_prefix\n"
+    "\nArguments:\n"
+    "\tassembly_file\t\tjellyfish database from genome assembly\n"
+    "\tread_file\t\tjellyfish database from short read data\n"
+    "\tout_prefix\t\toutput prefix\n\n"
+    "Options:\n"
+    "\t-m/--savemergs\tSave mer-file\n"
+    "\t-h/--help\tPrint help message \n\n";
+
+
   jellyfish::file_header header;
   header.fill_standard();
   header.set_cmdline(argc, argv);
@@ -158,9 +169,10 @@ int main(int argc, char *argv[])
     int option_index = 0;
     static struct option long_options[] = {
       {"savemers",  no_argument,       0,  0 },
+      {"help",  no_argument,       0,  0 },
       {0,         0,                 0,  0 }
     };
-    c = getopt_long(argc, argv, "m", long_options, &option_index);
+    c = getopt_long(argc, argv, "mh", long_options, &option_index);
     if (c == -1)
       break;
 
@@ -168,19 +180,17 @@ int main(int argc, char *argv[])
     case 'm':
       saveMers = true;
       break;
+    case 'h':
+      std::cerr << usage;
+      std::exit(0);
     case '?':
       break;
     }
   };
 
   // Check number of arguments
-  if ((argc - optind) != 3) {err::die(err::msg() << "usage: " <<
-                           argv[0] << " [-m] assembly_file read_file out_prefix" <<
-                           "\n\nARGUMENTS:\n" <<
-                           "\tassembly_file\t\tjellyfish database from genome assembly\n" <<
-                           "\tread_file\t\tjellyfish database from short read data\n" <<
-                           "\tout_prefix\t\toutput prefix\n");
-  }
+  if ((argc - optind) != 3)
+    err::die(err::msg() << usage);
 
   // Read the header of each input files and do sanity checks.
   cpp_array<file_info> files(2);
